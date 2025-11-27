@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard / Registration Status</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Inter"', '"Noto Sans TC"', 'sans-serif'],
+                    },
+                    colors: {
+                        gray: {
+                            50: '#F9FAFB',
+                            100: '#F3F4F6',
+                            200: '#E5E7EB',
+                            800: '#1F2937',
+                            900: '#111827',
+                        },
+                        // 自訂色盤用於圖表
+                        primary: '#1F2937', // 深灰
+                        secondary: '#4B5563', // 中灰
+                        accent: '#EF4444', // 柔和紅 (For emphasis)
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #F9FAFB;
+            color: #111827;
+        }
+        /* 確保圖表容器有足夠的高度和寬度 */
+        .chart-large {
+            position: relative;
+            height: 320px;
+            width: 100%;
+        }
+        .data-list {
+            max-height: 380px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 lg:p-12 text-gray-900 antialiased">
+
+    <div class="max-w-7xl mx-auto">
+        
+        <!-- Header & Refresh Button -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-4 border-b border-gray-200">
+            <div>
+                <h1 class="text-3xl font-medium tracking-tight text-gray-900">活動報名現況儀表板</h1>
+                <p class="text-sm font-regular text-gray-500 mt-1">即時數據概覽：敏捷思維導入教學行政研討會</p>
+            </div>
+            <div class="mt-4 md:mt-0 flex items-center gap-4">
+                <span class="text-xs text-gray-400 font-mono" id="lastUpdated">Updating...</span>
+                <button onclick="fetchData()" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors border border-gray-300 rounded-lg px-4 py-2 bg-white hover:bg-gray-100 shadow-sm">
+                    刷新數據
+                </button>
+            </div>
+        </header>
+
+        <!-- KPI Cards (Top Row) -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
+            
+            <!-- 總報名人數 -->
+            <div class="bg-white p-6 rounded-xl border border-gray-100 shadow-card">
+                <h3 class="text-sm font-medium text-gray-500">總報名人數</h3>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span class="text-4xl font-bold text-gray-900" id="totalCount">0</span>
+                    <span class="text-xs text-gray-400">當前累積</span>
+                </div>
+            </div>
+
+            <!-- 剩餘名額 -->
+            <div class="bg-white p-6 rounded-xl border border-gray-100 shadow-card">
+                <h3 class="text-sm font-medium text-gray-500">剩餘名額 (Max 60)</h3>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span class="text-4xl font-bold text-gray-900" id="remainingCount">-</span>
+                    <span id="progressText" class="text-xs text-gray-400">Loading...</span>
+                </div>
+                <!-- Progress Bar -->
+                <div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mt-3">
+                    <div id="progressBar" class="bg-accent h-1.5 rounded-full transition-all duration-1000 w-0"></div>
+                </div>
+            </div>
+
+            <!-- 用餐需求數量 -->
+            <div class="bg-white p-6 rounded-xl border border-gray-100 shadow-card">
+                <h3 class="text-sm font-medium text-gray-500">需準備點心份數</h3>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span class="text-4xl font-bold text-gray-900" id="snackTotal">0</span>
+                    <span class="text-xs text-gray-400">目前比例 <span id="snackRate" class="font-semibold text-primary">0%</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Charts Area: Job and Snack (Most Important) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+            
+            <!-- 1. 職稱分佈 (Doughnut Chart) -->
+            <div class="bg-white p-8 rounded-xl border border-gray-100 shadow-card">
+                <h3 class="text-lg font-semibold text-gray-900 mb-6 border-b pb-3">
+                    📊 職稱分佈統計
+                </h3>
+                <div class="chart-large">
+                    <canvas id="jobChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 2. 茶水點心需求 (Pie Chart) -->
+            <div class="bg-white p-8 rounded-xl border border-gray-100 shadow-card">
+                <h3 class="text-lg font-semibold text-gray-900 mb-6 border-b pb-3">
+                    🍵 茶水點心需求比例
+                </h3>
+                <div class="chart-large">
+                    <canvas id="snackChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Secondary Data Area: Unit and Recent/Questions -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Unit Distribution (Horizontal Bar Chart) -->
+            <div class="lg:col-span-2 bg-white p-8 rounded-xl border border-gray-100 shadow-card">
+                <h3 class="text-lg font-semibold text-gray-900 mb-6 border-b pb-3">
+                    🏢 單位報名人數排行 (Top 5)
+                </h3>
+                <div class="chart-large h-64">
+                    <canvas id="unitChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Recent Entries & Questions (List View) -->
+            <div class="lg:col-span-1 space-y-8">
+                <!-- Latest Entries -->
+                <div class="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-50 bg-gray-50/30">
+                        <h3 class="text-sm font-semibold text-gray-900">最新報名人員</h3>
+                    </div>
+                    <div class="divide-y divide-gray-50 data-list" id="recentList">
+                        <div class="p-4 text-sm text-gray-400 text-center">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Latest Questions -->
+                <div class="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-50 bg-gray-50/30">
+                        <h3 class="text-sm font-semibold text-gray-900">最新提問</h3>
+                    </div>
+                    <div class="p-6 space-y-4 data-list" id="questionList">
+                        <div class="text-sm text-gray-400 text-center">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Minimalist Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center transition-opacity duration-300">
+        <div class="w-8 h-8 border-2 border-gray-200 border-t-gray-900 rounded-full animate-spin mb-4"></div>
+        <p class="text-sm text-gray-500 font-mono">載入數據中...</p>
+    </div>
+
+    <script>
+        // ===============================================
+        // 設定區：請填入您的 Apps Script 網址
+        // ===============================================
+        const API_URL = "https://script.google.com/macros/s/AKfycbypalbDHVsqzLvad2kk-k9K2nOfSTrjPNV6IeZacoVagCc2O3jGz8t68GSVkaUBNQO82A/exec";
+        const MAX_SEATS = 60;
+
+        let charts = {};
+
+        // Chart.js Global Config for Minimalist Look
+        Chart.defaults.font.family = '"Inter", "Noto Sans TC", sans-serif';
+        Chart.defaults.color = '#4B5563'; // 較深的灰色
+        Chart.defaults.scale.grid.color = '#F3F4F6';
+        Chart.defaults.plugins.tooltip.cornerRadius = 6;
+        Chart.defaults.plugins.tooltip.padding = 10;
+        Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(31, 41, 55, 0.9)'; // Primary dark color
+
+        window.addEventListener('load', fetchData);
+
+        async function fetchData() {
+            const overlay = document.getElementById('loadingOverlay');
+            
+            try {
+                // Show loading state
+                overlay.classList.remove('opacity-0', 'pointer-events-none');
+
+                const res = await fetch(API_URL);
+                const json = await res.json();
+                
+                const stats = json.stats;
+                const data = json.data;
+
+                updateKPIs(stats, data);
+                renderSnackChart(data); // Highlighted Chart 1
+                renderJobChart(data);   // Highlighted Chart 2
+                renderUnitChart(data);
+                renderRecentList(data);
+                renderQuestions(data);
+
+                document.getElementById('lastUpdated').textContent = 
+                    new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+
+            } catch (err) {
+                console.error(err);
+                alert('載入失敗，請檢查網路或 Apps Script 網址是否正確。');
+            } finally {
+                // Hide loading state
+                overlay.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function updateKPIs(stats, data) {
+            animateNumber('totalCount', stats.current);
+            document.getElementById('remainingCount').textContent = stats.remaining;
+            
+            // Progress Bar Logic
+            const percent = (stats.current / stats.total) * 100;
+            const progressText = document.getElementById('progressText');
+            document.getElementById('progressBar').style.width = `${percent}%`;
+
+            if (stats.remaining <= 5) {
+                progressText.innerHTML = `<span class="font-bold text-accent">僅剩 ${stats.remaining} 個名額!</span>`;
+            } else {
+                progressText.textContent = `已報名 ${percent.toFixed(1)}%`;
+            }
+
+
+            // Snack Text Stats
+            const needSnack = data.filter(d => d.snack && d.snack.includes('是')).length;
+            const rate = data.length > 0 ? Math.round((needSnack / data.length) * 100) : 0;
+            document.getElementById('snackRate').textContent = rate + '%';
+            document.getElementById('snackTotal').textContent = needSnack;
+        }
+
+        // Helper function for Chart rendering
+        function renderChart(id, type, data, extraOptions = {}) {
+            const ctx = document.getElementById(id).getContext('2d');
+            if (charts[id]) charts[id].destroy();
+
+            charts[id] = new Chart(ctx, {
+                type: type,
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                    },
+                    ...extraOptions
+                }
+            });
+        }
+
+        // 1. 職稱分佈 (Job Chart) - Doughnut
+        function renderJobChart(data) {
+            const jobCounts = {};
+            data.forEach(d => jobCounts[d.job] = (jobCounts[d.job] || 0) + 1);
+            
+            const labels = Object.keys(jobCounts);
+            const counts = Object.values(jobCounts);
+
+            renderChart('jobChart', 'doughnut', {
+                labels: labels,
+                datasets: [{
+                    data: counts,
+                    backgroundColor: ['#1F2937', '#4B5563', '#6B7280', '#9CA3AF', '#D1D5DB', '#E5E7EB'], // Grayscale Palette
+                    borderWidth: 2,
+                    borderColor: '#ffffff',
+                    cutout: '60%'
+                }]
+            }, {
+                plugins: { 
+                    legend: { 
+                        position: 'right', 
+                        labels: { 
+                            boxWidth: 10, 
+                            padding: 10, 
+                            font: { size: 12, weight: '500' } 
+                        } 
+                    } 
+                }
+            });
+        }
+
+        // 2. 茶水點心需求 (Snack Chart) - Pie
+        function renderSnackChart(data) {
+            const need = data.filter(d => d.snack && d.snack.includes('是')).length;
+            const noNeed = data.length - need;
+
+            const rate = data.length > 0 ? Math.round((need / data.length) * 100) : 0;
+            
+            renderChart('snackChart', 'pie', {
+                labels: ['需要點心 (Yes)', '不需要點心 (No)'],
+                datasets: [{
+                    data: [need, noNeed],
+                    backgroundColor: ['#1F2937', '#E5E7EB'], // Primary Dark and Light Background
+                    hoverBackgroundColor: ['#111827', '#D1D5DB'],
+                    borderWidth: 0,
+                }]
+            }, { 
+                plugins: { 
+                    legend: { 
+                        position: 'right',
+                        labels: { boxWidth: 10, padding: 10, font: { size: 12, weight: '500' } } 
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                let label = context.label || '';
+                                if (label) { label += ': '; }
+                                if (context.parsed !== null) {
+                                    label += context.parsed;
+                                    label += ` (${(context.parsed / data.length * 100).toFixed(1)}%)`;
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                } 
+            });
+        }
+        
+        // 3. 單位報名排行 (Unit Chart) - Horizontal Bar
+        function renderUnitChart(data) {
+            const unitCounts = {};
+            data.forEach(d => {
+                const u = d.unit && d.unit.trim().length > 0 ? d.unit : '未填寫';
+                unitCounts[u] = (unitCounts[u] || 0) + 1;
+            });
+            const unitSorted = Object.entries(unitCounts).sort((a,b) => b[1] - a[1]).slice(0, 5);
+
+            renderChart('unitChart', 'bar', {
+                labels: unitSorted.map(i => i[0]),
+                datasets: [{
+                    data: unitSorted.map(i => i[1]),
+                    backgroundColor: '#D1D5DB', // Light Gray
+                    hoverBackgroundColor: '#1F2937',
+                    borderRadius: 4,
+                    barThickness: 20
+                }]
+            }, {
+                indexAxis: 'y', // Horizontal bars
+                scales: {
+                    x: { grid: { drawOnChartArea: true } },
+                    y: { grid: { display: false } }
+                }
+            });
+        }
+
+
+        function renderRecentList(data) {
+            const list = document.getElementById('recentList');
+            list.innerHTML = '';
+            
+            const recentData = [...data].reverse().slice(0, 5);
+
+            if(recentData.length === 0) {
+                list.innerHTML = '<div class="p-4 text-sm text-gray-400 text-center">目前沒有報名紀錄</div>';
+                return;
+            }
+
+            recentData.forEach(row => {
+                const div = document.createElement('div');
+                div.className = 'px-6 py-4 flex items-center justify-between group hover:bg-gray-50 transition-colors';
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-500">
+                            ${row.name.charAt(0)}
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium text-gray-900">${row.name}</p>
+                            <p class="text-xs text-gray-500">${row.unit} · ${row.job}</p>
+                        </div>
+                    </div>
+                    <span class="text-xs font-mono text-gray-400">
+                        ${row.timestamp.toString().split('T')[0]}
+                    </span>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function renderQuestions(data) {
+            const list = document.getElementById('questionList');
+            list.innerHTML = '';
+            
+            const questions = [...data].reverse().filter(d => d.question && d.question.trim().length > 5).slice(0, 3);
+            
+            if(questions.length === 0) {
+                list.innerHTML = '<div class="text-sm text-gray-400 text-center">目前沒有提問</div>';
+                return;
+            }
+
+            questions.forEach(q => {
+                const div = document.createElement('div');
+                div.className = 'bg-gray-50 p-4 rounded-lg border border-gray-100 relative';
+                div.innerHTML = `
+                    <p class="text-sm text-gray-800 mb-2 leading-relaxed italic">“${q.question}”</p>
+                    <div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
+                        <span class="text-xs text-gray-400">${q.name}</span>
+                        <span class="text-[10px] text-gray-500">${q.job}</span>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        // Simple Number Counter Animation
+        function animateNumber(id, end) {
+            const obj = document.getElementById(id);
+            let start = parseInt(obj.textContent) || 0;
+            const duration = 800;
+            let startTime = null;
+            
+            function step(timestamp) {
+                if (!startTime) startTime = timestamp;
+                const progress = Math.min((timestamp - startTime) / duration, 1);
+                obj.textContent = Math.floor(progress * (end - start) + start);
+                if (progress < 1) window.requestAnimationFrame(step);
+            }
+            window.requestAnimationFrame(step);
+        }
+    </script>
+</body>
+</html>
